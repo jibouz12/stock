@@ -1,19 +1,20 @@
 import React, { useState } from 'react';
-import BarcodeScanner from '../components/scanner/BarcodeScanner';
+import NativeBarcodeScanner from '../components/scanner/NativeBarcodeScanner';
 import ManualEntry from '../components/scanner/ManualEntry';
 import { fetchProductByBarcode } from '../services/api';
 import { Product } from '../types';
-import ProductDetails from '../components/product/ProductDetails';
 import ProductForm from '../components/product/ProductForm';
 import { useInventoryStore } from '../store/useInventoryStore';
 import { useToastStore } from '../store/useToastStore';
-import { ScanLine, Search, Package, Loader2 } from 'lucide-react';
+import { useHaptics } from '../hooks/useHaptics';
+import { ScanLine, Search, Loader2 } from 'lucide-react';
 
 const ScanPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [product, setProduct] = useState<Product | null>(null);
   const { getItemByBarcode } = useInventoryStore();
   const { addToast } = useToastStore();
+  const { triggerNotification } = useHaptics();
   const [existingItem, setExistingItem] = useState<ReturnType<typeof getItemByBarcode>>(undefined);
   
   const handleScan = async (barcode: string) => {
@@ -29,6 +30,7 @@ const ScanPage: React.FC = () => {
       
       if (productData) {
         setProduct(productData);
+        await triggerNotification('success');
         
         if (existing) {
           addToast({
@@ -38,6 +40,7 @@ const ScanPage: React.FC = () => {
           });
         }
       } else {
+        await triggerNotification('error');
         addToast({
           title: 'Product Not Found',
           description: 'No product information found for this barcode',
@@ -45,6 +48,7 @@ const ScanPage: React.FC = () => {
         });
       }
     } catch (error) {
+      await triggerNotification('error');
       addToast({
         title: 'Error',
         description: 'Failed to fetch product data',
@@ -55,7 +59,8 @@ const ScanPage: React.FC = () => {
     }
   };
   
-  const handleError = (error: string) => {
+  const handleError = async (error: string) => {
+    await triggerNotification('error');
     addToast({
       title: 'Scanner Error',
       description: error,
@@ -70,32 +75,32 @@ const ScanPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="space-y-6">
       <div className="text-center">
-        <h1 className="text-3xl font-bold mb-2">Scan Product Barcode</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-2xl font-bold mb-2">Scan Product Barcode</h1>
+        <p className="text-muted-foreground text-sm">
           Scan a product barcode to fetch information and add it to your inventory
         </p>
       </div>
       
       {!product && !loading && (
         <>
-          <div className="card p-6 mb-6">
-            <div className="flex items-center justify-center gap-3 mb-4">
-              <ScanLine className="w-6 h-6 text-primary" />
-              <h2 className="text-xl font-medium">Barcode Scanner</h2>
+          <div className="card p-4">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <ScanLine className="w-5 h-5 text-primary" />
+              <h2 className="text-lg font-medium">Barcode Scanner</h2>
             </div>
-            <BarcodeScanner onScan={handleScan} onError={handleError} />
+            <NativeBarcodeScanner onScan={handleScan} onError={handleError} />
           </div>
           
-          <div className="text-center my-6">
-            <p className="text-muted-foreground">Or</p>
+          <div className="text-center my-4">
+            <p className="text-muted-foreground text-sm">Or</p>
           </div>
           
           <div className="card">
-            <div className="flex items-center justify-center gap-3 mb-2 pt-6 px-6">
-              <Search className="w-6 h-6 text-primary" />
-              <h2 className="text-xl font-medium">Manual Entry</h2>
+            <div className="flex items-center justify-center gap-2 mb-2 pt-4 px-4">
+              <Search className="w-5 h-5 text-primary" />
+              <h2 className="text-lg font-medium">Manual Entry</h2>
             </div>
             <ManualEntry onSubmit={handleScan} />
           </div>
@@ -103,43 +108,37 @@ const ScanPage: React.FC = () => {
       )}
       
       {loading && (
-        <div className="card p-12 text-center">
+        <div className="card p-8 text-center">
           <div className="flex justify-center mb-4">
-            <Loader2 className="w-12 h-12 text-primary animate-spin" />
+            <Loader2 className="w-10 h-10 text-primary animate-spin" />
           </div>
-          <h2 className="text-xl font-medium mb-2">Fetching Product Information</h2>
-          <p className="text-muted-foreground">
+          <h2 className="text-lg font-medium mb-2">Fetching Product Information</h2>
+          <p className="text-muted-foreground text-sm">
             Looking up product details in the database...
           </p>
         </div>
       )}
       
       {product && !loading && (
-        <div className="space-y-6 animate-fade-in">
+        <div className="space-y-4 animate-fade-in">
           <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-bold">
+            <h2 className="text-xl font-bold">
               {existingItem ? 'Product Already in Inventory' : 'Product Found'}
             </h2>
             <button 
               onClick={handleReset}
-              className="btn btn-outline"
+              className="btn btn-outline btn-sm"
             >
               Scan Another
             </button>
           </div>
           
-          <div className="card p-6">
-            {existingItem ? (
-              // Show product form in edit mode for existing items
-              <ProductForm 
-                product={product} 
-                existingItem={existingItem} 
-                isEdit={true} 
-              />
-            ) : (
-              // Show product form in add mode for new items
-              <ProductForm product={product} />
-            )}
+          <div className="card p-4">
+            <ProductForm 
+              product={product} 
+              existingItem={existingItem} 
+              isEdit={!!existingItem} 
+            />
           </div>
         </div>
       )}

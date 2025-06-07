@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { InventoryItem, StockStats } from '../types';
+import { Preferences } from '@capacitor/preferences';
+import { Capacitor } from '@capacitor/core';
 
 interface InventoryState {
   items: InventoryItem[];
@@ -14,6 +16,7 @@ interface InventoryState {
   updateQuantity: (id: string, change: number) => void;
   getItemByBarcode: (barcode: string) => InventoryItem | undefined;
   calculateStats: () => void;
+  loadFromStorage: () => Promise<void>;
 }
 
 // Helper function to calculate inventory statistics
@@ -63,84 +66,109 @@ const calculateInventoryStats = (items: InventoryItem[]): StockStats => {
   return stats;
 };
 
-// Load initial data from localStorage if available
-const loadInitialState = (): { items: InventoryItem[] } => {
+// Storage functions
+const saveToStorage = async (items: InventoryItem[]) => {
   try {
-    const storedItems = localStorage.getItem('inventory');
-    return { 
-      items: storedItems ? JSON.parse(storedItems) : [] 
-    };
+    if (Capacitor.isNativePlatform()) {
+      await Preferences.set({
+        key: 'inventory',
+        value: JSON.stringify(items)
+      });
+    } else {
+      localStorage.setItem('inventory', JSON.stringify(items));
+    }
   } catch (error) {
-    console.error('Failed to load inventory from localStorage:', error);
-    return { items: [] };
+    console.error('Failed to save inventory to storage:', error);
   }
 };
 
-const initialState = loadInitialState();
+const loadFromStorage = async (): Promise<InventoryItem[]> => {
+  try {
+    if (Capacitor.isNativePlatform()) {
+      const result = await Preferences.get({ key: 'inventory' });
+      return result.value ? JSON.parse(result.value) : [];
+    } else {
+      const stored = localStorage.getItem('inventory');
+      return stored ? JSON.parse(stored) : [];
+    }
+  } catch (error) {
+    console.error('Failed to load inventory from storage:', error);
+    return [];
+  }
+};
 
 export const useInventoryStore = create<InventoryState>((set, get) => ({
-  items: initialState.items,
+  items: [],
   isLoading: false,
   error: null,
-  stats: calculateInventoryStats(initialState.items),
+  stats: { total: 0, lowStock: 0, outOfStock: 0, expiringSoon: 0, categories: {} },
 
-  addItem: (item: InventoryItem) => {
-    set(state => {
-      const newItems = [...state.items, item];
-      // Save to localStorage
-      localStorage.setItem('inventory', JSON.stringify(newItems));
-      return { 
-        items: newItems,
-        stats: calculateInventoryStats(newItems)
-      };
-    });
-  },
-
-  updateItem: (id: string, updates: Partial<InventoryItem>) => {
-    set(state => {
-      const newItems = state.items.map(item => 
-        item.id === id ? { ...item, ...updates, lastUpdated: new Date().toISOString() } : item
-      );
-      // Save to localStorage
-      localStorage.setItem('inventory', JSON.stringify(newItems));
-      return { 
-        items: newItems,
-        stats: calculateInventoryStats(newItems)
-      };
-    });
-  },
-
-  removeItem: (id: string) => {
-    set(state => {
-      const newItems = state.items.filter(item => item.id !== id);
-      // Save to localStorage
-      localStorage.setItem('inventory', JSON.stringify(newItems));
-      return { 
-        items: newItems,
-        stats: calculateInventoryStats(newItems)
-      };
-    });
-  },
-
-  updateQuantity: (id: string, change: number) => {
-    set(state => {
-      const newItems = state.items.map(item => {
-        if (item.id === id) {
-          const newQuantity = Math.max(0, item.stockQuantity + change);
-          return { 
-            ...item, 
-            stockQuantity: newQuantity,
-            lastUpdated: new Date().toISOString()
-          };
-        }
-        return item;
+  loadFromStorage: async () => {
+    set({ isLoading: true });
+    try {
+      const items = await loadFromStorage();
+      set({ 
+        items,
+        stats: calculateInventoryStats(items),
+        isLoading: false 
       });
-      // Save to localStorage
-      localStorage.setItem('inventory', JSON.stringify(newItems));
-      return { 
-        items: newItems,
-        stats: calculateInventoryStats(newItems)
-      };
+    } catch (error) {
+      set({ 
+        error: 'Failed to load inventory',
+        isLoading: false 
+      });
+    }
+  },
+
+  addItem: async (item: InventoryItem) => {
+    const state = get();
+    const newItems = [...state.items, item];
+    await saveToStorage(newItems);
+    set({ 
+      items: newItems,
+      stats: calculateInventoryStats(newItems)
+    });
+  },
+
+  updateItem: async (id: string, updates: Partial<InventoryItem>) => {
+    const state = get();
+    const newItems = state.items.map(item => 
+      item.id === id ? { ...item, ...updates, lastUpdated: new Date().toISOString() } : item
+    );
+    await saveToStorage(newItems);
+    set({ 
+      items: newItems,
+      stats: calculateInventoryStats(newItems)
+    });
+  },
+
+  removeItem: async (id: string) => {
+    const state = get();
+    const newItems = state.items.filter(item => item.id !== id);
+    await saveToStorage(newItems);
+    set({ 
+      items: newItems,
+      stats: calculateInventoryStats(newItems)
+    });
+  },
+
+  updateQuantity: async (id: string, change: number) => {
+    const state = get();
+    const newItems = state.items.map(item => {
+      if (item.id === id) {
+        const newQuantity = Math.max(0, item.stockQuantity + change);
+        return { 
+          ...item, 
+          stockQuantity: newQuantity,
+          lastUpdated: new Date().toISOString()
+        };
+      }
+      return item;
+    });
+    await saveToStorage(newItems);
+    set({ 
+      items: newItems,
+      stats: calculateInventoryStats(newItems)
     });
   },
 
@@ -149,8 +177,9 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   },
 
   calculateStats: () => {
-    set(state => ({
+    const state = get();
+    set({
       stats: calculateInventoryStats(state.items)
-    }));
+    });
   }
 }));
