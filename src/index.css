@@ -18,6 +18,7 @@
   --card-foreground: 224 71% 4%;
   --muted: 220 14% 96%;
   --muted-foreground: 220 8% 46%;
+  --input: 220 14% 96%;
 }
 
 @layer base {
